@@ -22,23 +22,34 @@ type
   end;
 
   TfrmGLTester = class(TForm)
+    btnResetMetrics: TButton;
     chkLighting: TCheckBox;
     chkMoveBackground: TCheckBox;
     chkBlending: TCheckBox;
     chkMoveCube: TCheckBox;
     glControl: TOpenGLControl;
+    GroupBox1: TGroupBox;
+    GroupBox2: TGroupBox;
+    GroupBox3: TGroupBox;
+    lblfps: TLabel;
+    lblMinFPS: TLabel;
+    lblMaxFPS: TLabel;
+    mmGLInfo: TMemo;
     pnlControls: TPanel;
     pnlScene: TPanel;
     stsMain: TStatusBar;
+    procedure btnResetMetricsClick(Sender: TObject);
     procedure chkLightingClick(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+    procedure FormResize(Sender: TObject);
     procedure FormShow(Sender: TObject);
     procedure glControlPaint(Sender: TObject);
   private
     lightamb, lightdif, lightpos, light2pos, light2dif,
     light3pos, light3dif, light4pos, light4dif, fogcolor: array [0..3] of GLfloat;
     timer: single;
-    LastMsecs: integer;
+    FLastFrameTicks,FFrameCount, FLastMsecs: integer;
+    FminFPS, FmaxFPS : integer;
     rx, ry, rz, rrx, rry, rrz: single;
     textures : array [0..2] of GLuint;    // Storage For 3 Textures
     MyglTextures : array [0..2] of TglTexture;
@@ -52,6 +63,8 @@ type
     procedure SetupGL_Shapes;
     procedure SetupGL_ViewPort;
     procedure DrawScene;
+    procedure UpdateFrameMetrics;
+    procedure UpdateGLInfo;
     procedure OnIdle(Sender : TObject; var done:boolean);
   public
     { public declarations }
@@ -65,7 +78,7 @@ const
 
 implementation
 
-uses IntfGraphics, FPimage;
+uses IntfGraphics, FPimage, math;
 
 {$R *.lfm}
 
@@ -77,24 +90,6 @@ uses IntfGraphics, FPimage;
 
 
 
-procedure TfrmGLTester.glControlPaint(Sender: TObject);
-begin
-  DrawScene;
-//
-//  glClearColor(0.27, 0.53, 0.71, 1.0); //Set blue background
-//
-//  glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT);
-//  glLoadIdentity;
-//  glBegin(GL_TRIANGLES);
-//    glColor3f(1, 0, 0);
-//    glVertex3f( 0.0, 1.0, 0.0);
-//    glColor3f(0, 1, 0);
-//    glVertex3f(-1.0,-1.0, 0.0);
-//    glColor3f(0, 0, 1);
-//    glVertex3f( 1.0,-1.0, 0.0);
-//  glEnd;
-//  glControl.SwapBuffers;
-end;
 
 
 
@@ -317,22 +312,15 @@ var
   CurTime: TDateTime;
   MSecs: integer;
 begin
-  //inc(FrameCount);
-  //inc(LastFrameTicks,OpenGLControl1.FrameDiffTimeInMSecs);
-  //if (LastFrameTicks>=1000) then begin
-  //  DebugLn(['TExampleForm.OpenGLControl1Paint Frames per second: ',FrameCount]);
-  //  dec(LastFrameTicks,1000);
-  //  FrameCount:=0;
-  //end;
-  //
 
+    UpdateFrameMetrics;
 
     CurTime:=Now;
     MSecs:=round(CurTime*86400*1000) mod 1000;
     if MSecs<0 then MSecs:=1000+MSecs;
-    timer:=msecs-LastMsecs;
+    timer:=msecs-FLastMsecs;
     if timer<0 then timer:=1000+timer;
-    LastMsecs:=MSecs;
+    FLastMsecs:=MSecs;
 
     ParticleEngine.MoveParticles(timer);
 
@@ -397,6 +385,44 @@ begin
 
 end;
 
+procedure TfrmGLTester.UpdateFrameMetrics;
+begin
+  inc(FFrameCount);
+  inc(FLastFrameTicks,glControl.FrameDiffTimeInMSecs);
+  if (FLastFrameTicks>=1000) then
+  begin
+    //a second has passed
+
+    if FMinFPS = -1 then
+      FMinFPS := FFrameCount
+    else
+      FminFPS := Min(FMinFPS,FFrameCount);
+
+    if FmaxFPS = -1 then
+      FmaxFPS := FFrameCount
+    else
+      FmaxFPS := max(FMaxFPS,FFrameCount);
+
+    lblFps.Caption := Format('current: %d fps',[FFrameCount]);
+    lblMinFPS.Caption := Format('min: %d fps',[FMinFPS]);
+    lblMaxFPS.Caption := Format('max: %d fps',[FmaxFPS]);;
+
+    dec(FLastFrameTicks,1000);
+    FFrameCount:=0;
+  end;
+
+end;
+
+procedure TfrmGLTester.UpdateGLInfo;
+begin
+  mmGLInfo.Clear;
+  mmGLInfo.Lines.Add(Format('GL vendor: %s',[glGetString(GL_VENDOR)]));
+  mmGLInfo.Lines.Add(Format('GL renderer: %s',[glGetString(GL_RENDERER)]));
+  mmGLInfo.Lines.Add(Format('GL version: %s',[glGetString(GL_VERSION)]));
+  mmGLInfo.Lines.Add(Format('Supported Extensions: %s',[glGetString(GL_EXTENSIONS)]));
+
+end;
+
 procedure TfrmGLTester.LoadTextures;
 
   procedure LoadglTexture(Filename:string; Image:TglTexture);
@@ -430,7 +456,10 @@ procedure TfrmGLTester.FormShow(Sender: TObject);
 begin
   ParticleEngine:=TParticleEngine.Create;
 
+  btnResetMetricsClick(Sender);
+
   glControl.MakeCurrent;
+  UpdateGLInfo;
   LoadTextures;
   SetupGL_Lights;
   SetupGL_Shapes;
@@ -438,7 +467,7 @@ begin
   ParticleEngine.Start;
 
   Application.OnIdle := @OnIdle;
-  stsMain.SimpleText:= format('Open GL %d.%d',[glControl.OpenGLMajorVersion,glControl.OpenGLMinorVersion]);
+
 end;
 
 procedure TfrmGLTester.chkLightingClick(Sender: TObject);
@@ -447,6 +476,12 @@ begin
     glEnable(GL_LIGHTING)
   else
     glDisable(GL_LIGHTING);
+end;
+
+procedure TfrmGLTester.btnResetMetricsClick(Sender: TObject);
+begin
+  FminFPS := -1;
+  FmaxFPS := -1;
 end;
 
 procedure TfrmGLTester.FormDestroy(Sender: TObject);
@@ -459,13 +494,22 @@ begin
   FreeAndNil(ParticleEngine);
 end;
 
+procedure TfrmGLTester.FormResize(Sender: TObject);
+begin
+  stsMain.SimpleText:= format('GL Scene (%dx%d)',[glControl.Width,glControl.Height]);
+end;
+
 procedure TfrmGLTester.OnIdle(Sender: TObject; var done: boolean);
 begin
   glControl.Invalidate;
-  //OpenGLControl1Paint(Self);
   done:=false; // tell lcl to handle messages and return immediatly
 end;
 
+
+procedure TfrmGLTester.glControlPaint(Sender: TObject);
+begin
+  DrawScene;
+end;
 
 
 destructor TglTexture.Destroy;
